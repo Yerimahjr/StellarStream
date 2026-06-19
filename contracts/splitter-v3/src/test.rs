@@ -486,9 +486,9 @@ fn test_split_with_affiliate() {
         &s.owner, &recipients, &100_000_000, &Some(aff.clone()),
         &BytesN::from_array(&s.env, &[20u8; 32]),
     );
-    assert_eq!(s.token.balance(&aff), 10_000); // 0.1%
-    // alice gets remaining 99_990_000 (zero fee, 100% bps)
-    assert_eq!(s.token.balance(&alice), 99_990_000);
+    assert_eq!(s.token.balance(&aff), 100_000); // 0.1% of 100_000_000
+    // alice gets 100_000_000 - 100_000 affiliate = 99_900_000
+    assert_eq!(s.token.balance(&alice), 99_900_000);
 }
 
 #[test]
@@ -1332,10 +1332,13 @@ fn test_recovery_split_duplicate_signer_rejected() {
     let alice = Address::generate(&s.env);
     let recipients = single_recipient(&s.env, &alice);
     let mut sigs = Vec::new(&s.env);
-    let first = s.council.get(0).unwrap();
-    for _ in 0..5 {
-        sigs.push_back(first.clone()); // same address 5 times
+    // Add 5 unique council members then repeat the first one — require_auth
+    // passes for all 6 entries (mock_all_auths), but the duplicate check
+    // fires when it sees council[0] appear twice.
+    for i in 0..5u32 {
+        sigs.push_back(s.council.get(i).unwrap());
     }
+    sigs.push_back(s.council.get(0).unwrap()); // duplicate of index 0
     assert_eq!(
         s.contract.try_recovery_split(&sigs, &recipients, &20_000_000i128),
         Err(Ok(Error::DuplicateCouncilSigner))
@@ -1382,8 +1385,8 @@ fn test_set_affiliate_and_withdraw() {
     let alice2 = Address::generate(&s.env);
     let recipients2 = single_recipient(&s.env, &alice2);
     s.contract.split_pull(&s.owner, &recipients2, &100_000_000, &Some(aff.clone()));
-    // 0.1% affiliate = 10_000; remaining = 99_990_000 → alice2 gets 99_990_000
-    assert_eq!(s.token.balance(&aff), 10_000);
+    // affiliate gets 0.1% = 100_000_000 * 10 / 10_000 = 100_000
+    assert_eq!(s.token.balance(&aff), 100_000);
 }
 
 #[test]
