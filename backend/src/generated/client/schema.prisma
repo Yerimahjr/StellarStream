@@ -220,6 +220,22 @@ model Proposal {
   @@index([createdAt])
 }
 
+// Event sourcing table for immutable audit trail
+model Event {
+  id           String   @id @default(cuid())
+  eventId      String   @unique // Global unique event identifier
+  streamId     String // Reference to the stream this event relates to
+  eventType    String // CREATE, WITHDRAW, CANCEL, PAUSE, RESUME
+  payload      Json // Complete event data as JSON
+  timestamp    DateTime @default(now())
+  hash         String // SHA-256 hash of this event
+  previousHash String? // Hash of the previous event in the chain
+
+  @@index([streamId])
+  @@index([eventType])
+  @@index([timestamp])
+}
+
 enum StreamStatus {
   ACTIVE
   PAUSED
@@ -369,19 +385,25 @@ model TvlSnapshot {
 
 // Asset metadata from stellar.toml
 model Asset {
-  id            String    @id @default(cuid())
-  tokenAddress  String    @unique
-  homeDomain    String?
-  name          String?
-  symbol        String?
-  imageUrl      String?
-  decimals      Int       @default(7)
-  isVerified    Boolean   @default(false)
-  lastFetchedAt DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  tokenAddress          String    @unique
+  homeDomain            String?
+  name                  String?
+  symbol                String?
+  imageUrl              String?
+  decimals              Int       @default(7)
+  isVerified            Boolean   @default(false)
+  stellarExpertVerified Boolean   @default(false) @map("stellar_expert_verified")
+  tomlUrl               String?
+  orgVerified           Boolean   @default(false) @map("org_verified")
+  orgHomeDomain         String?   @map("org_home_domain")
+  lastFetchedAt         DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@index([tokenAddress])
+  @@index([stellarExpertVerified])
+  @@index([orgVerified])
 }
 
 // Autopilot periodic split schedules
@@ -422,36 +444,57 @@ model AssetConfig {
   @@index([isVisible])
 }
 
-// ── V3 Fund-Split Tables ──────────────────────────────────────────────────────
+// Cold storage for disbursements older than 18 months
+model ArchivedDisbursement {
+  id             String   @id @default(cuid())
+  streamId       String
+  txHash         String
+  sender         String
+  receiver       String
+  amount         BigInt
+  tokenAddress   String
+  status         String
+  completedAt    DateTime
+  archivedAt     DateTime @default(now())
+  originalLedger Int
 
-// Header record for a single fund-split disbursement
+  @@index([streamId])
+  @@index([completedAt])
+  @@index([archivedAt])
+  @@index([sender])
+  @@index([receiver])
+}
+
+// Active disbursements table (keeps primary table lean)
 model Disbursement {
-  id            String   @id @default(cuid())
-  senderAddress String   @map("sender_address")
-  totalAmount   String   @map("total_amount")
-  asset         String
-  txHash        String   @unique @map("tx_hash")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id           String             @id @default(cuid())
+  streamId     String
+  txHash       String             @unique
+  sender       String
+  receiver     String
+  amount       BigInt
+  tokenAddress String
+  status       DisbursementStatus @default(PENDING)
+  createdAt    DateTime           @default(now())
+  completedAt  DateTime?
+  ledger       Int
 
-  recipients SplitRecipient[]
-
-  @@index([senderAddress])
-  @@index([txHash])
+  @@index([streamId])
+  @@index([sender])
+  @@index([receiver])
+  @@index([status])
+  @@index([createdAt])
 }
 
-// Individual payout row linked to a parent Disbursement
-model SplitRecipient {
-  id               String       @id @default(cuid())
-  disbursementId   String       @map("disbursement_id")
-  recipientAddress String       @map("recipient_address")
-  amount           String
-  status           PayoutStatus @default(PENDING)
-
-  disbursement Disbursement @relation(fields: [disbursementId], references: [id])
-
-  @@index([disbursementId])
-  @@index([recipientAddress])
+enum DisbursementStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
 }
+
+// ── V3 Fund-Split Tables ──────────────────────────────────────────────────────
 
 enum PayoutStatus {
   PENDING
@@ -635,6 +678,7 @@ model SplitLink {
   fullUrl        String    @map("full_url")
   payloadHash    String    @unique @map("payload_hash")
   creatorAddress String    @map("creator_address")
+  passwordHash   String?   @map("password_hash") // SHA-256 of the password; null = no protection
   clickCount     Int       @default(0) @map("click_count")
   lastClickedAt  DateTime? @map("last_clicked_at")
   expiresAt      DateTime? @map("expires_at")

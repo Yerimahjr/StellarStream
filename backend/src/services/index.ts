@@ -11,6 +11,11 @@ export { LedgerVerificationService } from "./ledger-verification.service.js";
 export { AuditLogService } from "./audit-log.service.js";
 export { AuditChainVerificationService } from "./audit-chain-verification.service.js";
 
+// Event sourcing services for immutable audit trail
+export { EventSourceService, type EventData, type EventChainEntry } from "./event-source.service.js";
+export { HashChainVerificationService, type VerificationResult } from "./hash-chain-verification.service.js";
+export { StreamMigrationService } from "./stream-migration.service.js";
+
 export {
   BatchMetadataService,
   type BatchMetadataResponse,
